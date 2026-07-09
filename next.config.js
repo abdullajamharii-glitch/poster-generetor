@@ -5,11 +5,6 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: { unoptimized: true },
-  turbopack: {},
-  webpack: (config) => {
-    config.externals = [...(config.externals || []), { canvas: "canvas" }];
-    return config;
-  },
 };
 
 module.exports = nextConfig;
