@@ -9,6 +9,15 @@ export interface ShadowProps {
   opacity: number;
 }
 
+export interface CoverConfig {
+  enabled: boolean;
+  color: string;
+  opacity: number;
+  blur: number;
+  padding: number;
+  radius: number;
+}
+
 export interface BaseElement {
   id: string;
   type: ElementType;
@@ -36,8 +45,9 @@ export interface TextElementData extends BaseElement {
   letterSpacing: number;
   lineHeight: number;
   shadow: ShadowProps;
-  background?: string; // optional pill/box background color
+  background?: string;
   backgroundPadding?: number;
+  coverConfig?: CoverConfig; // covers baked-in poster text with a colored rect
 }
 
 export interface ImageElementData extends BaseElement {

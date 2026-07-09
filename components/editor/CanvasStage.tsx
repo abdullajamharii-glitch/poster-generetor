@@ -5,6 +5,7 @@ import { Stage, Layer, Rect, Text as KonvaText, Transformer } from "react-konva"
 import useImage from "use-image";
 import { useEditorStore } from "@/store/useEditorStore";
 import URLImage from "./URLImage";
+import RegionDialog, { RegionConfig } from "./RegionDialog";
 import { TextElementData } from "@/lib/types";
 
 export default function CanvasStage() {
@@ -20,6 +21,9 @@ export default function CanvasStage() {
     duplicateSelected,
     undo,
     redo,
+    addText,
+    addImage,
+    mappingMode,
   } = useEditorStore();
 
   const stageRef = useRef<any>(null);
@@ -29,6 +33,12 @@ export default function CanvasStage() {
   const [bg] = useImage(template.background || "", "anonymous");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  // Drawing state (mapping mode)
+  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
+  const [drawRect, setDrawRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [pendingRect, setPendingRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [showRegionDialog, setShowRegionDialog] = useState(false);
 
   const sorted = [...template.elements].sort((a, b) => a.zIndex - b.zIndex);
 
@@ -89,11 +99,93 @@ export default function CanvasStage() {
     ? (template.elements.find((e) => e.id === editingId) as TextElementData | undefined)
     : undefined;
 
+  // ── Drawing handlers (mapping mode) ──────────────────────────────────
+  const handleStageMouseDown = (e: any) => {
+    if (!mappingMode) {
+      if (e.target === e.target.getStage()) clearSelection();
+      return;
+    }
+    const stage = stageRef.current;
+    const pos = stage?.getPointerPosition();
+    if (!pos) return;
+    const cx = pos.x / zoom;
+    const cy = pos.y / zoom;
+    setDrawStart({ x: cx, y: cy });
+    setDrawRect({ x: cx, y: cy, width: 0, height: 0 });
+  };
+
+  const handleStageMouseMove = (e: any) => {
+    if (!mappingMode || !drawStart) return;
+    const stage = stageRef.current;
+    const pos = stage?.getPointerPosition();
+    if (!pos) return;
+    const cx = pos.x / zoom;
+    const cy = pos.y / zoom;
+    setDrawRect({
+      x: Math.min(drawStart.x, cx),
+      y: Math.min(drawStart.y, cy),
+      width: Math.abs(cx - drawStart.x),
+      height: Math.abs(cy - drawStart.y),
+    });
+  };
+
+  const handleStageMouseUp = () => {
+    if (!mappingMode || !drawRect) return;
+    if (drawRect.width > 20 && drawRect.height > 10) {
+      setPendingRect({ ...drawRect });
+      setShowRegionDialog(true);
+    }
+    setDrawStart(null);
+    setDrawRect(null);
+  };
+
+  const handleRegionConfirm = (cfg: RegionConfig) => {
+    if (!pendingRect) return;
+    if (cfg.type === "text") {
+      addText({
+        name: cfg.variable,
+        text: `{{${cfg.variable}}}`,
+        x: pendingRect.x,
+        y: pendingRect.y,
+        width: pendingRect.width,
+        height: pendingRect.height,
+        fontSize: cfg.fontSize || 24,
+        fontWeight: cfg.fontWeight || "normal",
+        fontStyle: cfg.fontStyle || "normal",
+        fill: cfg.fill || "#ffffff",
+        align: cfg.align || "left",
+        fontFamily: cfg.fontFamily || "Inter, sans-serif",
+        coverConfig: cfg.coverConfig,
+      });
+    } else {
+      addImage("", {
+        name: cfg.variable,
+        placeholderKey: cfg.variable,
+        x: pendingRect.x,
+        y: pendingRect.y,
+        width: pendingRect.width,
+        height: pendingRect.height,
+        fit: cfg.fit || "contain",
+      });
+    }
+    setShowRegionDialog(false);
+    setPendingRect(null);
+  };
+
+  const handleRegionCancel = () => {
+    setShowRegionDialog(false);
+    setPendingRect(null);
+  };
+
   return (
     <div className="relative inline-block" ref={containerRef}>
       <div
         className="checker-bg shadow-panel rounded-sm"
-        style={{ width: template.width * zoom, height: template.height * zoom }}
+        style={{
+          width: template.width * zoom,
+          height: template.height * zoom,
+          cursor: mappingMode ? "crosshair" : "default",
+        }}
       >
         <Stage
           ref={stageRef}
@@ -101,11 +193,12 @@ export default function CanvasStage() {
           height={template.height * zoom}
           scaleX={zoom}
           scaleY={zoom}
-          onMouseDown={(e) => {
-            if (e.target === e.target.getStage()) clearSelection();
-          }}
+          onMouseDown={handleStageMouseDown}
+          onMouseMove={handleStageMouseMove}
+          onMouseUp={handleStageMouseUp}
         >
           <Layer>
+            {/* Canvas background */}
             <Rect
               x={0}
               y={0}
@@ -113,6 +206,8 @@ export default function CanvasStage() {
               height={template.height}
               fill={template.backgroundColor}
             />
+
+            {/* Background image */}
             {bg && (
               <URLImage
                 el={{
@@ -139,8 +234,10 @@ export default function CanvasStage() {
               />
             )}
 
+            {/* Elements */}
             {sorted.map((el) => {
               if (!el.visible) return null;
+
               if (el.type === "image") {
                 return (
                   <URLImage
@@ -148,7 +245,7 @@ export default function CanvasStage() {
                     el={el}
                     draggable={selectedIds.includes(el.id)}
                     shapeRef={(node) => (nodeRefs.current[el.id] = node)}
-                    onSelect={(e) => select(el.id, e.evt?.shiftKey)}
+                    onSelect={(e) => !mappingMode && select(el.id, e.evt?.shiftKey)}
                     onChange={(patch) => {
                       updateElement(el.id, patch);
                       commit();
@@ -156,71 +253,107 @@ export default function CanvasStage() {
                   />
                 );
               }
+
               const t = el as TextElementData;
+              const cover = t.coverConfig;
+
               return (
-                <KonvaText
-                  key={t.id}
-                  ref={(node) => {
-                    nodeRefs.current[t.id] = node;
-                  }}
-                  x={t.x}
-                  y={t.y}
-                  width={t.width}
-                  text={t.text}
-                  fontFamily={t.fontFamily}
-                  fontSize={t.fontSize}
-                  fontStyle={`${t.fontStyle} ${t.fontWeight === "bold" ? "bold" : ""}`.trim()}
-                  fill={t.fill}
-                  align={t.align}
-                  letterSpacing={t.letterSpacing}
-                  lineHeight={t.lineHeight}
-                  rotation={t.rotation}
-                  opacity={editingId === t.id ? 0 : t.opacity}
-                  draggable={selectedIds.includes(t.id) && !t.locked}
-                  shadowEnabled={t.shadow.enabled}
-                  shadowColor={t.shadow.color}
-                  shadowBlur={t.shadow.blur}
-                  shadowOffsetX={t.shadow.offsetX}
-                  shadowOffsetY={t.shadow.offsetY}
-                  shadowOpacity={t.shadow.opacity}
-                  onClick={(e) => select(t.id, e.evt.shiftKey)}
-                  onTap={(e) => select(t.id, (e.evt as any).shiftKey)}
-                  onDblClick={() => startEdit(t)}
-                  onDblTap={() => startEdit(t)}
-                  onDragEnd={(e) => {
-                    updateElement(t.id, { x: e.target.x(), y: e.target.y() });
-                    commit();
-                  }}
-                  onTransformEnd={(e) => {
-                    const node = e.target;
-                    const scaleX = node.scaleX();
-                    node.scaleX(1);
-                    node.scaleY(1);
-                    updateElement(t.id, {
-                      x: node.x(),
-                      y: node.y(),
-                      rotation: node.rotation(),
-                      width: Math.max(40, t.width * scaleX),
-                      fontSize: Math.max(6, Math.round(t.fontSize * node.scaleY())),
-                    });
-                    commit();
-                  }}
-                />
+                <React.Fragment key={t.id}>
+                  {/* Cover rect to hide original baked-in text */}
+                  {cover?.enabled && (
+                    <Rect
+                      x={t.x - cover.padding}
+                      y={t.y - cover.padding}
+                      width={t.width + cover.padding * 2}
+                      height={Math.max(t.fontSize * t.lineHeight, t.height) + cover.padding * 2}
+                      fill={cover.color}
+                      opacity={cover.opacity}
+                      cornerRadius={cover.radius}
+                      listening={false}
+                    />
+                  )}
+                  <KonvaText
+                    ref={(node) => {
+                      nodeRefs.current[t.id] = node;
+                    }}
+                    x={t.x}
+                    y={t.y}
+                    width={t.width}
+                    text={t.text}
+                    fontFamily={t.fontFamily}
+                    fontSize={t.fontSize}
+                    fontStyle={`${t.fontStyle} ${t.fontWeight === "bold" ? "bold" : ""}`.trim()}
+                    fill={t.fill}
+                    align={t.align}
+                    letterSpacing={t.letterSpacing}
+                    lineHeight={t.lineHeight}
+                    rotation={t.rotation}
+                    opacity={editingId === t.id ? 0 : t.opacity}
+                    draggable={selectedIds.includes(t.id) && !t.locked && !mappingMode}
+                    shadowEnabled={t.shadow.enabled}
+                    shadowColor={t.shadow.color}
+                    shadowBlur={t.shadow.blur}
+                    shadowOffsetX={t.shadow.offsetX}
+                    shadowOffsetY={t.shadow.offsetY}
+                    shadowOpacity={t.shadow.opacity}
+                    onClick={(e) => !mappingMode && select(t.id, e.evt.shiftKey)}
+                    onTap={(e) => !mappingMode && select(t.id, (e.evt as any).shiftKey)}
+                    onDblClick={() => !mappingMode && startEdit(t)}
+                    onDblTap={() => !mappingMode && startEdit(t)}
+                    onDragEnd={(e) => {
+                      updateElement(t.id, { x: e.target.x(), y: e.target.y() });
+                      commit();
+                    }}
+                    onTransformEnd={(e) => {
+                      const node = e.target;
+                      const scaleX = node.scaleX();
+                      node.scaleX(1);
+                      node.scaleY(1);
+                      updateElement(t.id, {
+                        x: node.x(),
+                        y: node.y(),
+                        rotation: node.rotation(),
+                        width: Math.max(40, t.width * scaleX),
+                        fontSize: Math.max(6, Math.round(t.fontSize * node.scaleY())),
+                      });
+                      commit();
+                    }}
+                  />
+                </React.Fragment>
               );
             })}
 
-            <Transformer
-              ref={trRef}
-              rotateEnabled
-              flipEnabled={false}
-              boundBoxFunc={(oldBox, newBox) =>
-                newBox.width < 20 || newBox.height < 10 ? oldBox : newBox
-              }
-            />
+            {/* Live drawing rectangle in mapping mode */}
+            {mappingMode && drawRect && drawRect.width > 0 && (
+              <Rect
+                x={drawRect.x}
+                y={drawRect.y}
+                width={drawRect.width}
+                height={drawRect.height}
+                stroke="#3b5bfd"
+                strokeWidth={2 / zoom}
+                dash={[8 / zoom, 4 / zoom]}
+                fill="rgba(59,91,253,0.08)"
+                listening={false}
+              />
+            )}
+
+            {/* Transformer (only in normal mode) */}
+            {!mappingMode && (
+              <Transformer
+                ref={trRef}
+                rotateEnabled
+                flipEnabled={false}
+                boundBoxFunc={(oldBox, newBox) =>
+                  newBox.width < 20 || newBox.height < 10 ? oldBox : newBox
+                }
+              />
+            )}
           </Layer>
         </Stage>
       </div>
 
+      {/* Inline text editor overlay */}
       {editingEl && (
         <textarea
           autoFocus
@@ -256,6 +389,16 @@ export default function CanvasStage() {
             padding: 0,
             zIndex: 50,
           }}
+        />
+      )}
+
+      {/* Region config dialog */}
+      {showRegionDialog && pendingRect && (
+        <RegionDialog
+          rect={pendingRect}
+          bgColor={template.backgroundColor}
+          onConfirm={handleRegionConfirm}
+          onCancel={handleRegionCancel}
         />
       )}
     </div>

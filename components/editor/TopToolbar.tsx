@@ -11,6 +11,7 @@ import {
   ZoomOut,
   ArrowLeft,
   Sparkles,
+  Crosshair,
 } from "lucide-react";
 import { useEditorStore } from "@/store/useEditorStore";
 import { IconButton, Button } from "@/components/ui/Button";
@@ -28,6 +29,8 @@ export default function TopToolbar() {
     redo,
     historyIndex,
     history,
+    mappingMode,
+    setMappingMode,
   } = useEditorStore();
   const [exportOpen, setExportOpen] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -92,6 +95,19 @@ export default function TopToolbar() {
         <IconButton onClick={() => setZoom(zoom + 0.1)} title="Zoom in">
           <ZoomIn size={16} />
         </IconButton>
+        <div className="w-px h-6 bg-gray-200 mx-1" />
+        <button
+          onClick={() => setMappingMode(!mappingMode)}
+          title="Toggle Mapping Mode — draw regions to define placeholders"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+            mappingMode
+              ? "bg-brand-500 text-white border-brand-500 shadow-sm"
+              : "bg-white text-gray-600 border-gray-200 hover:border-brand-300 hover:text-brand-600"
+          }`}
+        >
+          <Crosshair size={14} />
+          {mappingMode ? "Exit Mapping" : "Map Regions"}
+        </button>
       </div>
 
       <div className="flex items-center gap-2 relative">

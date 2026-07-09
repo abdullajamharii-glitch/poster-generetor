@@ -151,7 +151,7 @@ export default function DashboardPage() {
       // Simulate a small delay for premium UX upload animation
       await new Promise((resolve) => setTimeout(resolve, 800));
 
-      router.push(`/editor/${newTpl.id}`);
+      router.push(`/editor/${newTpl.id}?mapping=true`);
     } catch (err) {
       console.error("Failed to create template:", err);
       showToast("Failed to create template. Please try again.", "error");

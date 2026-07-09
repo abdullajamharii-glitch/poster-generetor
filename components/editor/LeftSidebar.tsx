@@ -58,6 +58,7 @@ export default function LeftSidebar() {
     reorder,
     setBackground,
     commit,
+    mappingMode,
   } = useEditorStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
@@ -88,6 +89,55 @@ export default function LeftSidebar() {
 
   return (
     <div className="w-72 shrink-0 border-r border-gray-200 bg-white flex flex-col h-full">
+      {mappingMode ? (
+        <>
+          <div className="px-4 py-3 border-b border-brand-100 bg-brand-50">
+            <p className="text-xs font-bold text-brand-700 uppercase tracking-wide">🗺 Mapping Mode</p>
+            <p className="text-[11px] text-brand-500 mt-0.5">Drag on the poster to draw placeholder regions.</p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-5">
+            <div className="space-y-2.5">
+              {[
+                { step: "1", text: "Click and drag on the poster to draw a box over any region" },
+                { step: "2", text: "Choose Text or Image and assign a variable name" },
+                { step: "3", text: "Enable \"Cover original\" to hide baked-in poster text" },
+                { step: "4", text: "Click Save → Generate Poster to fill in the values" },
+              ].map(({ step, text }) => (
+                <div key={step} className="flex items-start gap-2.5">
+                  <div className="h-5 w-5 rounded-full bg-brand-100 text-brand-600 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    {step}
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed">{text}</p>
+                </div>
+              ))}
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Mapped Regions ({template.elements.length})</p>
+              {template.elements.length === 0 ? (
+                <div className="flex flex-col items-center py-6 text-center">
+                  <p className="text-xs text-gray-400">None yet — draw your first region on the canvas.</p>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {template.elements.map((el) => (
+                    <div key={el.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-100">
+                      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
+                        el.type === "text" ? "bg-brand-100 text-brand-700" : "bg-purple-100 text-purple-700"
+                      }`}>
+                        {el.type}
+                      </span>
+                      <span className="text-xs font-mono text-gray-700 truncate flex-1">
+                        {el.type === "text" ? (el as any).text : `{{${(el as any).placeholderKey || el.name}}}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
       <div className="grid grid-cols-4 gap-1 p-2 border-b border-gray-100">
         {[
           { id: "text" as Tab, icon: Type, label: "Text" },
@@ -316,6 +366,8 @@ export default function LeftSidebar() {
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

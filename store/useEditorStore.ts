@@ -66,6 +66,10 @@ interface EditorState {
   // zoom
   setZoom: (z: number) => void;
 
+  // mapping mode
+  mappingMode: boolean;
+  setMappingMode: (v: boolean) => void;
+
   // history
   commit: () => void;
   undo: () => void;
@@ -79,6 +83,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   history: [],
   historyIndex: -1,
   dirty: false,
+  mappingMode: false,
 
   loadTemplate: (t) =>
     set({
@@ -311,6 +316,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setZoom: (z) => set({ zoom: Math.min(2, Math.max(0.1, z)) }),
+
+  setMappingMode: (v) => set({ mappingMode: v }),
 
   commit: () => {
     const { template, history, historyIndex } = get();
