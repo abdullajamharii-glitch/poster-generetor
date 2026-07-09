@@ -2,8 +2,8 @@
 
 import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, ImagePlus, CheckCircle2, Sparkles, Settings2 } from "lucide-react";
-import { PosterTemplate, applyPlaceholders, extractPlaceholders } from "@/lib/types";
+import { ArrowLeft, Download, ImagePlus, CheckCircle2, Sparkles, Settings2, ArrowLeftRight, Check, X } from "lucide-react";
+import { PosterTemplate, applyPlaceholders, extractPlaceholders, TextElementData } from "@/lib/types";
 import { posterStore, fileToDataUrl } from "@/lib/storage";
 import { Button } from "@/components/ui/Button";
 import PreviewStage from "@/components/editor/PreviewStage";
@@ -11,25 +11,14 @@ import { exportStageAsImage, exportStageAsPDF, getStageDataUrl } from "@/lib/exp
 import { parseCsv } from "@/lib/csv";
 import { nanoid } from "nanoid";
 
-/**
- * Convert variable_name → human-readable label
- * e.g. "company_name" → "Company Name"
- *      "date1" → "Date 1"
- *      "price2" → "Price 2"
- */
 function humanize(key: string): string {
   return key
-    .replace(/([a-z])(\d+)$/, "$1 $2") // price1 → price 1
+    .replace(/([a-z])(\d+)$/, "$1 $2") // price1 -> price 1
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .trim();
 }
 
-/**
- * CLIENT MODE – simple form to fill placeholder values.
- * No design tools. Only text fields and image replace buttons.
- * Live preview updates as the user types.
- */
 export default function GeneratorShell({ template }: { template: PosterTemplate }) {
   const { textKeys, imageKeys } = useMemo(() => extractPlaceholders(template), [template]);
 
@@ -39,10 +28,13 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
     return init;
   });
 
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [downloaded, setDownloaded] = useState<string | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
+  // Compute live updated template for Preview
   const previewTemplate = useMemo(
     () => applyPlaceholders(template, values),
     [template, values]
@@ -50,6 +42,18 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
 
   const containerWidth = 440;
   const zoom = containerWidth / template.width;
+
+  // Find the selected element in the template (to show specific edit panel)
+  const selectedEl = useMemo(() => {
+    if (!selectedId) return null;
+    return template.elements.find((e) => e.id === selectedId) || null;
+  }, [selectedId, template.elements]);
+
+  // Find the placeholder key for the selected element
+  const selectedKey = useMemo(() => {
+    if (!selectedEl) return null;
+    return selectedEl.type === "image" ? selectedEl.placeholderKey : selectedEl.name;
+  }, [selectedEl]);
 
   const setText = (key: string, v: string) => setValues((s) => ({ ...s, [key]: v }));
 
@@ -140,6 +144,18 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
 
   const hasFields = textKeys.length > 0 || imageKeys.length > 0;
 
+  // Helper to map template elements to their placeholder keys
+  const templateElementsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    template.elements.forEach((el) => {
+      const key = el.type === "image" ? el.placeholderKey : el.name;
+      if (key) {
+        map[key] = el.id;
+      }
+    });
+    return map;
+  }, [template.elements]);
+
   return (
     <div className="min-h-screen bg-[#f7f8fc]">
       {/* ── Top bar ── */}
@@ -151,7 +167,7 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
         </Link>
         <div className="w-px h-6 bg-gray-200" />
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-bold text-gray-900 truncate">{template.name}</h1>
+          <h1 className="text-sm font-bold text-gray-900 truncate">Update Poster: {template.name}</h1>
           {template.category && (
             <p className="text-[11px] text-gray-400">{template.category}</p>
           )}
@@ -198,174 +214,223 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
       </div>
 
       {/* ── Main layout ── */}
-      <div className="max-w-6xl mx-auto flex gap-7 p-6">
+      <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-7 p-6">
 
         {/* ── Left: Form panel ── */}
-        <div className="w-80 shrink-0 space-y-4">
+        <div className="w-full md:w-80 shrink-0 space-y-4">
 
-          {/* No placeholders notice */}
-          {!hasFields && (
-            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 text-center">
-              <Sparkles className="mx-auto mb-2 text-amber-400" size={24} />
-              <p className="text-sm font-semibold text-amber-700">No mapped regions yet</p>
-              <p className="text-xs text-amber-500 mt-1 leading-relaxed">
-                Open the Template Editor, enable <strong>Map Regions</strong> mode, and draw boxes over each area of the poster you want clients to replace.
-              </p>
-              <Link href={`/editor/${template.id}?mapping=true`} className="mt-3 inline-block">
-                <Button size="sm">Open Template Editor</Button>
-              </Link>
-            </div>
-          )}
-
-          {/* Text fields */}
-          {textKeys.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Text Fields</p>
+          {/* If a field is active, show the minimal Canva-style Edit view */}
+          {selectedEl && selectedKey ? (
+            <div className="bg-white rounded-2xl border border-brand-200 shadow-md overflow-hidden animate-in slide-in-from-left duration-250">
+              <div className="px-4 py-3 border-b border-brand-100 bg-brand-50 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider">Active Field</p>
+                  <h3 className="text-sm font-bold text-gray-800">{humanize(selectedKey)}</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="h-7 w-7 rounded-full bg-white hover:bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-500 shadow-sm"
+                  title="Close focused view"
+                >
+                  <X size={14} />
+                </button>
               </div>
-              <div className="p-4 space-y-3">
-                {textKeys.map((k) => (
-                  <div key={k} className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">{humanize(k)}</label>
-                    <input
-                      className="w-full text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all placeholder-gray-300"
-                      value={values[k] || ""}
-                      onChange={(e) => setText(k, e.target.value)}
-                      placeholder={`Enter ${humanize(k)}…`}
-                    />
+
+              <div className="p-4 space-y-4">
+                {selectedEl.type === "text" ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Current Value</label>
+                      <p className="text-sm text-gray-700 bg-gray-50 p-2.5 rounded-xl border border-gray-100 font-mono break-all mt-1 min-h-[40px]">
+                        {values[selectedKey] || <span className="italic text-gray-300">Empty</span>}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-600">Edit Text</label>
+                      <textarea
+                        autoFocus
+                        className="w-full text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all resize-none min-h-[80px]"
+                        value={values[selectedKey] || ""}
+                        onChange={(e) => setText(selectedKey, e.target.value)}
+                        placeholder={`Enter new ${humanize(selectedKey)}…`}
+                      />
+                    </div>
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Current Image</label>
+                      <div className="flex justify-center border border-gray-200 p-2 rounded-xl bg-gray-50/50 mt-1">
+                        {values[selectedKey] ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={values[selectedKey]}
+                            alt={selectedKey}
+                            className="h-28 object-contain rounded-lg shadow-sm"
+                          />
+                        ) : (
+                          <div className="h-28 w-28 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 italic text-xs">
+                            No replacement
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm cursor-pointer shadow-sm transition-all text-center">
+                        <ImagePlus size={16} />
+                        Replace Image
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleImageFile(selectedKey, f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      {values[selectedKey] && (
+                        <Button
+                          variant="outline"
+                          onClick={() => setText(selectedKey, "")}
+                          className="text-red-500 border-red-200 hover:bg-red-50"
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  className="w-full"
+                  onClick={() => setSelectedId(null)}
+                >
+                  Done
+                </Button>
               </div>
             </div>
-          )}
+          ) : (
+            /* Default State: full fields list */
+            <>
+              {/* No placeholders notice */}
+              {!hasFields && (
+                <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 text-center">
+                  <Sparkles className="mx-auto mb-2 text-amber-400" size={24} />
+                  <p className="text-sm font-semibold text-amber-700">No mapped regions yet</p>
+                  <p className="text-xs text-amber-500 mt-1 leading-relaxed">
+                    Open the Template Editor, enable <strong>Map Regions</strong> mode, and draw boxes over each area of the poster you want clients to replace.
+                  </p>
+                  <Link href={`/editor/${template.id}?mapping=true`} className="mt-3 inline-block">
+                    <Button size="sm">Open Template Editor</Button>
+                  </Link>
+                </div>
+              )}
 
-          {/* Image fields */}
-          {imageKeys.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Images & Logos</p>
-              </div>
-              <div className="p-4 space-y-3">
-                {imageKeys.map((k) => (
-                  <div key={k} className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">{humanize(k)}</label>
-                    <label className="group flex items-center gap-3 px-3 py-2.5 rounded-xl border border-dashed border-gray-200 hover:border-brand-400 hover:bg-brand-50/30 cursor-pointer transition-all">
-                      {values[k] ? (
-                        <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* Text fields list */}
+              {textKeys.length > 0 && (
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                  <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Text Fields</p>
+                    <p className="text-[10px] text-gray-400">Click field to edit</p>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    {textKeys.map((k) => (
+                      <div
+                        key={k}
+                        onClick={() => setSelectedId(templateElementsMap[k])}
+                        className="p-2.5 rounded-xl border border-gray-100 hover:border-brand-300 hover:bg-brand-50/10 cursor-pointer transition-all space-y-1"
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-gray-600">{humanize(k)}</span>
+                          <span className="text-[9px] font-bold text-brand-500 bg-brand-50 px-1.5 py-0.5 rounded-full uppercase">Text</span>
+                        </div>
+                        <p className="text-xs text-gray-700 truncate font-mono">
+                          {values[k] ? values[k] : <span className="italic text-gray-300">Click to fill value...</span>}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Image fields list */}
+              {imageKeys.length > 0 && (
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                  <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Images & Logos</p>
+                    <p className="text-[10px] text-gray-400">Click region to replace</p>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    {imageKeys.map((k) => (
+                      <div
+                        key={k}
+                        onClick={() => setSelectedId(templateElementsMap[k])}
+                        className="p-2.5 rounded-xl border border-gray-100 hover:border-brand-300 hover:bg-brand-50/10 cursor-pointer transition-all flex items-center gap-3"
+                      >
+                        {values[k] ? (
+                          // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={values[k]}
                             alt={k}
-                            className="h-9 w-9 object-cover rounded-lg border border-gray-200"
+                            className="h-10 w-10 object-cover rounded-lg border border-gray-200 shadow-sm shrink-0"
                           />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-gray-700">Image selected ✓</p>
-                            <p className="text-[10px] text-brand-500 group-hover:underline">Click to replace</p>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 shrink-0 group-hover:bg-brand-100 group-hover:text-brand-500 transition-colors">
+                        ) : (
+                          <div className="h-10 w-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 shrink-0">
                             <ImagePlus size={16} />
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-gray-700">Replace {humanize(k)}</p>
-                            <p className="text-[10px] text-gray-400">PNG, JPG, WEBP</p>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-semibold text-gray-600 truncate">{humanize(k)}</span>
+                            <span className="text-[9px] font-bold text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded-full uppercase shrink-0">Image</span>
                           </div>
-                        </>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) handleImageFile(k, f);
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
+                          <p className="text-[10px] text-gray-400 mt-0.5 truncate">
+                            {values[k] ? "Custom Image Uploaded" : "Replace Image..."}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              )}
 
-          {/* Export options (bottom of form) */}
-          {hasFields && (
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Export Poster</p>
-              </div>
-              <div className="p-4 space-y-2">
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    disabled={busy === "export"}
-                    onClick={() => handleExport("png", 1)}
-                  >
-                    <Download size={13} /> PNG
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    disabled={busy === "export"}
-                    onClick={() => handleExport("jpg", 1)}
-                  >
-                    <Download size={13} /> JPG
-                  </Button>
+              {/* Bulk Generation & CSV Options */}
+              {hasFields && (
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                  <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Bulk Generator</p>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                      Bulk generate from a CSV file (headers = variable names).
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-gray-600"
+                      disabled={busy === "bulk"}
+                      onClick={() => csvInputRef.current?.click()}
+                    >
+                      {busy === "bulk" ? "Generating…" : "Upload CSV → Download ZIP"}
+                    </Button>
+                    <input
+                      ref={csvInputRef}
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleBulkCsv(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    disabled={busy === "export"}
-                    onClick={() => handleExport("png", 2)}
-                  >
-                    <Download size={13} /> HD PNG
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    disabled={busy === "export"}
-                    onClick={() => handleExport("pdf", 2)}
-                  >
-                    <Download size={13} /> {busy === "export" ? "Saving…" : "PDF"}
-                  </Button>
-                </div>
-
-                {/* Bulk CSV */}
-                <div className="pt-2 border-t border-gray-100">
-                  <p className="text-[10px] text-gray-400 mb-2">
-                    Bulk generate from a CSV file (headers = variable names).
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="w-full text-gray-500"
-                    disabled={busy === "bulk"}
-                    onClick={() => csvInputRef.current?.click()}
-                  >
-                    {busy === "bulk" ? "Generating…" : "Upload CSV → Download ZIP"}
-                  </Button>
-                  <input
-                    ref={csvInputRef}
-                    type="file"
-                    accept=".csv"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleBulkCsv(f);
-                      e.target.value = "";
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
+              )}
+            </>
           )}
         </div>
 
@@ -373,10 +438,17 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
         <div className="flex-1 flex flex-col gap-3 sticky top-20 self-start">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Live Preview</p>
-            <p className="text-[11px] text-gray-400">Updates as you type</p>
+            <p className="text-[11px] text-gray-400">Hover & click regions to edit</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-center">
-            <PreviewStage template={previewTemplate} zoom={zoom} />
+            <PreviewStage
+              template={previewTemplate}
+              zoom={zoom}
+              selectedId={selectedId}
+              hoveredId={hoveredId}
+              onSelect={setSelectedId}
+              onHover={setHoveredId}
+            />
           </div>
         </div>
       </div>

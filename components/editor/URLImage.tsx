@@ -11,9 +11,19 @@ interface Props {
   onChange: (patch: Partial<ImageElementData>) => void;
   onSelect: (e: any) => void;
   shapeRef: (node: any) => void;
+  onMouseEnter?: (e: any) => void;
+  onMouseLeave?: (e: any) => void;
 }
 
-export default function URLImage({ el, draggable, onChange, onSelect, shapeRef }: Props) {
+export default function URLImage({
+  el,
+  draggable,
+  onChange,
+  onSelect,
+  shapeRef,
+  onMouseEnter,
+  onMouseLeave,
+}: Props) {
   const [img] = useImage(el.src, "anonymous");
 
   // compute cover/contain crop
@@ -52,6 +62,8 @@ export default function URLImage({ el, draggable, onChange, onSelect, shapeRef }
       draggable={draggable && !el.locked}
       onClick={onSelect}
       onTap={onSelect}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onDragEnd={(e) => onChange({ x: e.target.x(), y: e.target.y() })}
       onTransformEnd={(e) => {
         const node = e.target;
