@@ -1,8 +1,0 @@
-{
-  "buildCommand": "npm run build",
-  "framework": "nextjs",
-  "rewrites": [
-    { "source": "/editor/:id", "destination": "/editor/:id" },
-    { "source": "/generate/:id", "destination": "/generate/:id" }
-  ]
-}
