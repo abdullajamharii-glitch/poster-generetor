@@ -53,6 +53,7 @@ export type EditorElement = TextElementData | ImageElementData;
 export interface PosterTemplate {
   id: string;
   name: string;
+  category?: string;
   width: number;
   height: number;
   background: string | null; // background image data URL

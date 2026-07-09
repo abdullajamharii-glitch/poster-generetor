@@ -31,6 +31,20 @@ export default function DashboardPage() {
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const router = useRouter();
 
+  // New Template Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [newTemplateCategory, setNewTemplateCategory] = useState("Flight");
+  const [newTemplateFile, setNewTemplateFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const refresh = () => {
     setTemplates(templateStore.all());
     setPosters(posterStore.all());
@@ -41,13 +55,30 @@ export default function DashboardPage() {
     refresh();
   }, []);
 
-  const createTemplate = () => router.push("/editor/new");
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
+      const validTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+      if (!validTypes.includes(f.type)) {
+        showToast("Invalid file type. Please upload PNG, JPG, JPEG, or WEBP.", "error");
+        return;
+      }
+
+      setNewTemplateFile(f);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(f);
+    }
+  };
 
   const createTemplateFromAsset = (asset: AssetItem) => {
     const now = Date.now();
     const newTpl: PosterTemplate = {
       id: nanoid(10),
       name: asset.name.replace(/\.[^.]+$/, "") || "New Template",
+      category: "Custom",
       width: 1080,
       height: 1528,
       background: asset.src,
@@ -57,7 +88,76 @@ export default function DashboardPage() {
       updatedAt: now,
     };
     templateStore.save(newTpl);
+    showToast("Template created from asset!", "success");
     router.push(`/editor/${newTpl.id}`);
+  };
+
+  const handleCreateTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTemplateName.trim()) {
+      showToast("Template name is required.", "error");
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const now = Date.now();
+      let width = 1080;
+      let height = 1350; // default for blank canvas (1080x1350 px)
+      let background: string | null = null;
+
+      if (newTemplateFile && imagePreview) {
+        background = imagePreview;
+        // Load image to get actual dimensions
+        const img = new Image();
+        img.src = imagePreview;
+        await new Promise((resolve) => {
+          img.onload = () => {
+            width = img.naturalWidth || 1080;
+            height = img.naturalHeight || 1528;
+            resolve(null);
+          };
+          img.onerror = () => {
+            resolve(null);
+          };
+        });
+      }
+
+      const newTpl: PosterTemplate = {
+        id: nanoid(10),
+        name: newTemplateName.trim(),
+        category: newTemplateCategory,
+        width,
+        height,
+        background,
+        backgroundColor: "#ffffff",
+        elements: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      templateStore.save(newTpl);
+      
+      showToast("Template created successfully!", "success");
+
+      // Reset state and close modal
+      setNewTemplateName("");
+      setNewTemplateCategory("Flight");
+      setNewTemplateFile(null);
+      setImagePreview(null);
+      setIsModalOpen(false);
+
+      // Simulate a small delay for premium UX upload animation
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
+      router.push(`/editor/${newTpl.id}`);
+    } catch (err) {
+      console.error("Failed to create template:", err);
+      showToast("Failed to create template. Please try again.", "error");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const duplicateTemplate = (t: PosterTemplate) => {
@@ -69,17 +169,20 @@ export default function DashboardPage() {
       updatedAt: Date.now(),
     };
     templateStore.save(clone);
+    showToast("Template duplicated!", "success");
     refresh();
   };
 
   const deleteTemplate = (id: string) => {
     templateStore.remove(id);
+    showToast("Template deleted", "success");
     refresh();
   };
 
   const uploadAsset = async (file: File) => {
     const src = await fileToDataUrl(file);
     assetStore.save({ id: nanoid(10), name: file.name, category: "other", src, createdAt: Date.now() });
+    showToast("Asset uploaded successfully!", "success");
     refresh();
   };
 
@@ -92,11 +195,9 @@ export default function DashboardPage() {
           </div>
           Travel Poster Generator
         </div>
-        <Link href="/editor/new">
-          <Button size="sm">
-            <Plus size={14} /> New Template
-          </Button>
-        </Link>
+        <Button size="sm" onClick={() => setIsModalOpen(true)}>
+          <Plus size={14} /> New Template
+        </Button>
       </header>
 
       <div className="max-w-6xl mx-auto flex gap-6 p-6">
@@ -130,7 +231,7 @@ export default function DashboardPage() {
                   title="No templates yet"
                   description="Upload a poster design (like a flight-deal flyer) and turn it into a reusable template with editable text and images."
                   action={
-                    <Button size="sm" onClick={createTemplate}>
+                    <Button size="sm" onClick={() => setIsModalOpen(true)}>
                       <Plus size={14} /> Create your first template
                     </Button>
                   }
@@ -314,6 +415,117 @@ export default function DashboardPage() {
           )}
         </main>
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={clsx(
+          "fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border transition-all duration-300 transform translate-y-0",
+          toast.type === "success" ? "bg-emerald-50 border-emerald-100 text-emerald-800" : "bg-red-50 border-red-100 text-red-800"
+        )}>
+          <div className={clsx(
+            "h-2 w-2 rounded-full",
+            toast.type === "success" ? "bg-emerald-500" : "bg-red-500"
+          )} />
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
+
+      {/* New Template Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-gray-100 w-full max-w-md shadow-2xl overflow-hidden transform transition-all duration-300 animate-in fade-in zoom-in-95">
+            <div className="p-6 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Create New Template</h2>
+              <p className="text-xs text-gray-400 mt-1">Design a reusable layout for flight, hotel, or custom promos.</p>
+            </div>
+            
+            <form onSubmit={handleCreateTemplate} className="p-6 space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-500">Template Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Flight Deals Deal-of-the-Week"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  className="w-full text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:border-brand-500 outline-none transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-500">Category</label>
+                <select
+                  value={newTemplateCategory}
+                  onChange={(e) => setNewTemplateCategory(e.target.value)}
+                  className="w-full text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:border-brand-500 outline-none bg-white transition-colors cursor-pointer"
+                >
+                  <option value="Flight">Flight</option>
+                  <option value="Hotel">Hotel</option>
+                  <option value="Visa">Visa</option>
+                  <option value="Tour Package">Tour Package</option>
+                  <option value="Custom">Custom</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-500">Upload Background Poster (Optional)</label>
+                <p className="text-[11px] text-gray-400 mb-2">Leave blank to start with a standard 1080 x 1350 px canvas.</p>
+                
+                <label className="group relative flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-dashed border-gray-300 hover:border-brand-400 hover:bg-brand-50/20 cursor-pointer transition-all">
+                  {imagePreview ? (
+                    <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden border border-gray-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span className="text-xs text-white font-medium bg-black/60 px-3 py-1.5 rounded-lg">Change Image</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="h-10 w-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center group-hover:bg-brand-50 group-hover:text-brand-500 transition-colors">
+                        <Plus size={20} />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-600">Select poster file</span>
+                      <span className="text-[10px] text-gray-400">PNG, JPG, JPEG, or WEBP</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/png, image/jpeg, image/jpg, image/webp"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                </label>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-gray-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  disabled={creating}
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setNewTemplateName("");
+                    setNewTemplateCategory("Flight");
+                    setNewTemplateFile(null);
+                    setImagePreview(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1"
+                  disabled={creating}
+                >
+                  {creating ? "Creating..." : "Create"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
