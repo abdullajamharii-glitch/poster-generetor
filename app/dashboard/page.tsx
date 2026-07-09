@@ -14,6 +14,7 @@ import {
   Sparkles,
   Copy,
   Plane,
+  LayoutTemplate,
 } from "lucide-react";
 import clsx from "clsx";
 import { templateStore, posterStore, assetStore, fileToDataUrl, AssetItem } from "@/lib/storage";
@@ -41,6 +42,23 @@ export default function DashboardPage() {
   }, []);
 
   const createTemplate = () => router.push("/editor/new");
+
+  const createTemplateFromAsset = (asset: AssetItem) => {
+    const now = Date.now();
+    const newTpl: PosterTemplate = {
+      id: nanoid(10),
+      name: asset.name.replace(/\.[^.]+$/, "") || "New Template",
+      width: 1080,
+      height: 1528,
+      background: asset.src,
+      backgroundColor: "#ffffff",
+      elements: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    templateStore.save(newTpl);
+    router.push(`/editor/${newTpl.id}`);
+  };
 
   const duplicateTemplate = (t: PosterTemplate) => {
     const clone: PosterTemplate = {
@@ -74,9 +92,11 @@ export default function DashboardPage() {
           </div>
           Travel Poster Generator
         </div>
-        <Button size="sm" onClick={createTemplate}>
-          <Plus size={14} /> New Template
-        </Button>
+        <Link href="/editor/new">
+          <Button size="sm">
+            <Plus size={14} /> New Template
+          </Button>
+        </Link>
       </header>
 
       <div className="max-w-6xl mx-auto flex gap-6 p-6">
@@ -198,22 +218,33 @@ export default function DashboardPage() {
                   description="Store reusable logos, flight images, icons and backgrounds here so you can drop them into any template."
                 />
               )}
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {assets.map((a) => (
-                  <div key={a.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-                    <div className="aspect-square bg-gray-50">
+                  <div key={a.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden group">
+                    <div className="aspect-[3/4] bg-gray-50 relative overflow-hidden">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={a.src} alt={a.name} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                        <button
+                          onClick={() => createTemplateFromAsset(a)}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-white text-gray-800 rounded-lg text-xs font-semibold hover:bg-brand-50 hover:text-brand-700 transition-colors"
+                        >
+                          <LayoutTemplate size={13} /> Use as Template
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      className="w-full text-[11px] text-red-400 py-1.5 hover:bg-red-50"
-                      onClick={() => {
-                        assetStore.remove(a.id);
-                        refresh();
-                      }}
-                    >
-                      Remove
-                    </button>
+                    <div className="p-2">
+                      <p className="text-xs text-gray-600 truncate font-medium">{a.name}</p>
+                      <button
+                        className="w-full text-[11px] text-red-400 py-1 mt-1 hover:bg-red-50 rounded"
+                        onClick={() => {
+                          assetStore.remove(a.id);
+                          refresh();
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
