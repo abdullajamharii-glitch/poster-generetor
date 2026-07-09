@@ -2,7 +2,7 @@
 
 import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, FileSpreadsheet, ImagePlus } from "lucide-react";
+import { ArrowLeft, Download, ImagePlus, CheckCircle2, Sparkles, Settings2 } from "lucide-react";
 import { PosterTemplate, applyPlaceholders, extractPlaceholders } from "@/lib/types";
 import { posterStore, fileToDataUrl } from "@/lib/storage";
 import { Button } from "@/components/ui/Button";
@@ -11,20 +11,44 @@ import { exportStageAsImage, exportStageAsPDF, getStageDataUrl } from "@/lib/exp
 import { parseCsv } from "@/lib/csv";
 import { nanoid } from "nanoid";
 
+/**
+ * Convert variable_name → human-readable label
+ * e.g. "company_name" → "Company Name"
+ *      "date1" → "Date 1"
+ *      "price2" → "Price 2"
+ */
+function humanize(key: string): string {
+  return key
+    .replace(/([a-z])(\d+)$/, "$1 $2") // price1 → price 1
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+/**
+ * CLIENT MODE – simple form to fill placeholder values.
+ * No design tools. Only text fields and image replace buttons.
+ * Live preview updates as the user types.
+ */
 export default function GeneratorShell({ template }: { template: PosterTemplate }) {
   const { textKeys, imageKeys } = useMemo(() => extractPlaceholders(template), [template]);
+
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     textKeys.forEach((k) => (init[k] = ""));
     return init;
   });
+
   const [busy, setBusy] = useState<string | null>(null);
-  const [bulkPreviewCount, setBulkPreviewCount] = useState<number | null>(null);
+  const [downloaded, setDownloaded] = useState<string | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
-  const previewTemplate = useMemo(() => applyPlaceholders(template, values), [template, values]);
+  const previewTemplate = useMemo(
+    () => applyPlaceholders(template, values),
+    [template, values]
+  );
 
-  const containerWidth = 480;
+  const containerWidth = 440;
   const zoom = containerWidth / template.width;
 
   const setText = (key: string, v: string) => setValues((s) => ({ ...s, [key]: v }));
@@ -60,12 +84,16 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
 
   const handleExport = async (format: "png" | "jpg" | "pdf", quality: 1 | 2 | 4) => {
     setBusy("export");
+    setDownloaded(null);
+    await waitFrames(3);
     if (format === "pdf") {
       await exportStageAsPDF(template.width, template.height, template.name, quality);
     } else {
       await exportStageAsImage(template.width, template.height, template.name, format, quality);
     }
     saveCurrentAsGenerated();
+    setDownloaded(format.toUpperCase());
+    setTimeout(() => setDownloaded(null), 2500);
     setBusy(null);
   };
 
@@ -74,8 +102,6 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
     const { rows } = parseCsv(text);
     if (!rows.length) return;
     setBusy("bulk");
-    setBulkPreviewCount(rows.length);
-    const savedValues = values;
 
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
@@ -83,11 +109,8 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const rowValues: Record<string, string> = {};
-      [...textKeys, ...imageKeys].forEach((k) => {
-        rowValues[k] = row[k] ?? "";
-      });
+      [...textKeys, ...imageKeys].forEach((k) => { rowValues[k] = row[k] ?? ""; });
       setValues(rowValues);
-      // give React + Konva + image loading time to settle before capture
       await waitFrames(2);
       await new Promise((r) => setTimeout(r, 500));
       const dataUrl = getStageDataUrl(template.width, template.height, 2);
@@ -112,134 +135,249 @@ export default function GeneratorShell({ template }: { template: PosterTemplate 
     a.download = `${template.name.replace(/\s+/g, "_")}_bulk.zip`;
     a.click();
     URL.revokeObjectURL(url);
-
-    setValues(savedValues);
-    setBulkPreviewCount(null);
     setBusy(null);
   };
 
+  const hasFields = textKeys.length > 0 || imageKeys.length > 0;
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="h-14 border-b border-gray-200 bg-white flex items-center px-4 gap-3">
+    <div className="min-h-screen bg-[#f7f8fc]">
+      {/* ── Top bar ── */}
+      <div className="h-14 bg-white border-b border-gray-200 flex items-center px-5 gap-3 sticky top-0 z-20 shadow-sm">
         <Link href="/dashboard">
           <Button variant="ghost" size="sm">
             <ArrowLeft size={14} /> Dashboard
           </Button>
         </Link>
-        <h1 className="text-sm font-semibold">Generate: {template.name}</h1>
+        <div className="w-px h-6 bg-gray-200" />
+        <div className="flex-1 min-w-0">
+          <h1 className="text-sm font-bold text-gray-900 truncate">{template.name}</h1>
+          {template.category && (
+            <p className="text-[11px] text-gray-400">{template.category}</p>
+          )}
+        </div>
+
+        {/* Admin edit shortcut */}
+        <Link href={`/editor/${template.id}`}>
+          <Button variant="ghost" size="sm" className="text-gray-400 hover:text-brand-600">
+            <Settings2 size={14} /> Edit Template
+          </Button>
+        </Link>
+
+        {/* Download buttons */}
+        <div className="flex items-center gap-1.5">
+          {downloaded && (
+            <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium animate-in fade-in">
+              <CheckCircle2 size={13} /> Saved!
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy === "export"}
+            onClick={() => handleExport("png", 1)}
+          >
+            <Download size={13} /> PNG
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy === "export"}
+            onClick={() => handleExport("jpg", 1)}
+          >
+            <Download size={13} /> JPG
+          </Button>
+          <Button
+            size="sm"
+            disabled={busy === "export"}
+            onClick={() => handleExport("pdf", 2)}
+          >
+            <Download size={13} /> {busy === "export" ? "Saving…" : "PDF"}
+          </Button>
+        </div>
       </div>
 
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 p-6">
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-5 h-fit">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">Fill in poster details</h2>
-            <p className="text-xs text-gray-400">
-              These map to the {"{{placeholders}}"} defined in the template's text and image
-              elements.
-            </p>
-          </div>
+      {/* ── Main layout ── */}
+      <div className="max-w-6xl mx-auto flex gap-7 p-6">
 
-          {textKeys.length === 0 && imageKeys.length === 0 && (
-            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-              This template has no {"{{placeholders}}"} yet. Add some in the editor (e.g.{" "}
-              {"{{route}}"}, {"{{price1}}"}) to make it reusable.
-            </p>
+        {/* ── Left: Form panel ── */}
+        <div className="w-80 shrink-0 space-y-4">
+
+          {/* No placeholders notice */}
+          {!hasFields && (
+            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 text-center">
+              <Sparkles className="mx-auto mb-2 text-amber-400" size={24} />
+              <p className="text-sm font-semibold text-amber-700">No mapped regions yet</p>
+              <p className="text-xs text-amber-500 mt-1 leading-relaxed">
+                Open the Template Editor, enable <strong>Map Regions</strong> mode, and draw boxes over each area of the poster you want clients to replace.
+              </p>
+              <Link href={`/editor/${template.id}?mapping=true`} className="mt-3 inline-block">
+                <Button size="sm">Open Template Editor</Button>
+              </Link>
+            </div>
           )}
 
-          <div className="space-y-3">
-            {textKeys.map((k) => (
-              <div key={k} className="space-y-1">
-                <label className="text-xs font-medium text-gray-500 capitalize">
-                  {k.replace(/_/g, " ")}
-                </label>
-                <input
-                  className="w-full text-sm px-3 py-2 rounded-lg border border-gray-200 focus:border-brand-400 outline-none"
-                  value={values[k] || ""}
-                  onChange={(e) => setText(k, e.target.value)}
-                  placeholder={`Enter ${k.replace(/_/g, " ")}`}
-                />
+          {/* Text fields */}
+          {textKeys.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Text Fields</p>
               </div>
-            ))}
-            {imageKeys.map((k) => (
-              <div key={k} className="space-y-1">
-                <label className="text-xs font-medium text-gray-500 capitalize">
-                  {k.replace(/_/g, " ")}
-                </label>
-                <label className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-brand-300 cursor-pointer">
-                  <ImagePlus size={14} />
-                  {values[k] ? "Image selected — click to change" : "Upload image"}
+              <div className="p-4 space-y-3">
+                {textKeys.map((k) => (
+                  <div key={k} className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">{humanize(k)}</label>
+                    <input
+                      className="w-full text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none transition-all placeholder-gray-300"
+                      value={values[k] || ""}
+                      onChange={(e) => setText(k, e.target.value)}
+                      placeholder={`Enter ${humanize(k)}…`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Image fields */}
+          {imageKeys.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Images & Logos</p>
+              </div>
+              <div className="p-4 space-y-3">
+                {imageKeys.map((k) => (
+                  <div key={k} className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">{humanize(k)}</label>
+                    <label className="group flex items-center gap-3 px-3 py-2.5 rounded-xl border border-dashed border-gray-200 hover:border-brand-400 hover:bg-brand-50/30 cursor-pointer transition-all">
+                      {values[k] ? (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={values[k]}
+                            alt={k}
+                            className="h-9 w-9 object-cover rounded-lg border border-gray-200"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-700">Image selected ✓</p>
+                            <p className="text-[10px] text-brand-500 group-hover:underline">Click to replace</p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 shrink-0 group-hover:bg-brand-100 group-hover:text-brand-500 transition-colors">
+                            <ImagePlus size={16} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-700">Replace {humanize(k)}</p>
+                            <p className="text-[10px] text-gray-400">PNG, JPG, WEBP</p>
+                          </div>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleImageFile(k, f);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Export options (bottom of form) */}
+          {hasFields && (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Export Poster</p>
+              </div>
+              <div className="p-4 space-y-2">
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    disabled={busy === "export"}
+                    onClick={() => handleExport("png", 1)}
+                  >
+                    <Download size={13} /> PNG
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    disabled={busy === "export"}
+                    onClick={() => handleExport("jpg", 1)}
+                  >
+                    <Download size={13} /> JPG
+                  </Button>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    disabled={busy === "export"}
+                    onClick={() => handleExport("png", 2)}
+                  >
+                    <Download size={13} /> HD PNG
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1"
+                    disabled={busy === "export"}
+                    onClick={() => handleExport("pdf", 2)}
+                  >
+                    <Download size={13} /> {busy === "export" ? "Saving…" : "PDF"}
+                  </Button>
+                </div>
+
+                {/* Bulk CSV */}
+                <div className="pt-2 border-t border-gray-100">
+                  <p className="text-[10px] text-gray-400 mb-2">
+                    Bulk generate from a CSV file (headers = variable names).
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="w-full text-gray-500"
+                    disabled={busy === "bulk"}
+                    onClick={() => csvInputRef.current?.click()}
+                  >
+                    {busy === "bulk" ? "Generating…" : "Upload CSV → Download ZIP"}
+                  </Button>
                   <input
+                    ref={csvInputRef}
                     type="file"
-                    accept="image/*"
+                    accept=".csv"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
-                      if (f) handleImageFile(k, f);
+                      if (f) handleBulkCsv(f);
                       e.target.value = "";
                     }}
                   />
-                </label>
+                </div>
               </div>
-            ))}
-          </div>
-
-          <div className="pt-4 border-t border-gray-100 space-y-2">
-            <h3 className="text-xs font-semibold text-gray-600">Export this poster</h3>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => handleExport("png", 1)}>
-                <Download size={14} /> PNG
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleExport("jpg", 1)}>
-                <Download size={14} /> JPG
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleExport("png", 2)}>
-                <Download size={14} /> HD (2x)
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleExport("png", 4)}>
-                <Download size={14} /> 4K
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleExport("pdf", 2)}>
-                <Download size={14} /> PDF
-              </Button>
             </div>
-          </div>
-
-          <div className="pt-4 border-t border-gray-100 space-y-2">
-            <h3 className="text-xs font-semibold text-gray-600">Bulk generate from CSV</h3>
-            <p className="text-[11px] text-gray-400">
-              CSV headers should match placeholder names (
-              {[...textKeys, ...imageKeys].slice(0, 4).map((k) => `{{${k}}}`).join(", ")}
-              {textKeys.length + imageKeys.length > 4 ? ", ..." : ""}). For image placeholders, use
-              a public image URL in the cell.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy === "bulk"}
-              onClick={() => csvInputRef.current?.click()}
-            >
-              <FileSpreadsheet size={14} />
-              {busy === "bulk"
-                ? `Generating ${bulkPreviewCount ?? ""}...`
-                : "Upload CSV & generate ZIP"}
-            </Button>
-            <input
-              ref={csvInputRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleBulkCsv(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
+          )}
         </div>
 
-        <div className="flex flex-col items-center gap-3">
-          <p className="text-xs text-gray-400 self-start">Live preview</p>
-          <PreviewStage template={previewTemplate} zoom={zoom} />
+        {/* ── Right: Live preview ── */}
+        <div className="flex-1 flex flex-col gap-3 sticky top-20 self-start">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Live Preview</p>
+            <p className="text-[11px] text-gray-400">Updates as you type</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-center">
+            <PreviewStage template={previewTemplate} zoom={zoom} />
+          </div>
         </div>
       </div>
     </div>

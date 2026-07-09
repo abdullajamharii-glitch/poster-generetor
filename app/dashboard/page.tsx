@@ -253,39 +253,48 @@ export default function DashboardPage() {
                         )}
                       </div>
                     </Link>
-                    <div className="p-3">
-                      <p className="text-sm font-medium text-gray-700 truncate">{t.name}</p>
-                      <p className="text-[11px] text-gray-400">
-                        Updated {new Date(t.updatedAt).toLocaleDateString()}
-                      </p>
-                      <div className="flex gap-1 mt-2">
-                        <Link href={`/editor/${t.id}`} className="flex-1">
-                          <Button variant="outline" size="sm" className="w-full">
-                            <Pencil size={13} /> Edit
-                          </Button>
-                        </Link>
-                        <Link href={`/generate/${t.id}`} className="flex-1">
-                          <Button variant="outline" size="sm" className="w-full">
-                            <Sparkles size={13} /> Generate
-                          </Button>
-                        </Link>
+                    <div className="p-3 space-y-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800 truncate">{t.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {t.category && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-brand-50 text-brand-600">{t.category}</span>
+                          )}
+                          <p className="text-[10px] text-gray-400">{new Date(t.updatedAt).toLocaleDateString()}</p>
+                        </div>
                       </div>
-                      <div className="flex gap-1 mt-1.5">
+                      {/* PRIMARY: Generate (Client Mode) */}
+                      <Link href={`/generate/${t.id}`} className="block">
+                        <Button size="sm" className="w-full">
+                          <Sparkles size={13} /> Generate Poster
+                        </Button>
+                      </Link>
+                      {/* SECONDARY: Edit (Admin Mode) */}
+                      <div className="flex gap-1">
+                        <Link href={`/editor/${t.id}`} className="flex-1">
+                          <Button variant="outline" size="sm" className="w-full text-gray-500">
+                            <Pencil size={12} /> Edit Template
+                          </Button>
+                        </Link>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="flex-1"
+                          className="text-gray-400 px-2"
                           onClick={() => duplicateTemplate(t)}
+                          title="Duplicate"
                         >
-                          <Copy size={13} /> Duplicate
+                          <Copy size={12} />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="flex-1 text-red-500"
-                          onClick={() => deleteTemplate(t.id)}
+                          className="text-red-400 px-2"
+                          onClick={() => {
+                            if (confirm(`Delete "${t.name}"?`)) deleteTemplate(t.id);
+                          }}
+                          title="Delete"
                         >
-                          <Trash2 size={13} /> Delete
+                          <Trash2 size={12} />
                         </Button>
                       </div>
                     </div>
